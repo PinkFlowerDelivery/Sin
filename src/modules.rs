@@ -9,8 +9,17 @@ pub fn build_cli() -> Command {
     Command::new("sin")
         .author("PinkFlowerDelivery")
         .version("1.0")
-        .subcommand(install::install_command())
-        .subcommand(list::list_command())
+        .arg_required_else_help(true)
+        .help_template("\
+{usage-heading} {usage}
+
+{all-args}{after-help}
+
+Author: {author}
+Version: {version}
+")
+    .subcommand(install::install_command())
+    .subcommand(list::list_command())
         .subcommand(remove::remove_command())
         .subcommand(search::search_command())
  

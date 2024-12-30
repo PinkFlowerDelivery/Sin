@@ -7,10 +7,7 @@ async fn main() {
     match matches.subcommand() {
         Some(("install", sub)) => {
             let _name = match sub.get_one::<String>("name") {
-                Some(name) => { 
-                    println!("Argument NAME: {}", name);
-                    modules::install::install_handle(name).await;
-                }
+                Some(name) => modules::install::install_handle(name).await,
                 None => {
                     println!("Argument NAME not found.");
                     return;
@@ -18,12 +15,21 @@ async fn main() {
             };
         }
         Some(("list", _)) => modules::list::list_handle().await,
+        Some(("reinstall" , sub)) => {
+            let _name = match sub.get_one::<String>("name") {
+                Some(name) => modules::reinstall::reinstall_handle(name).await,
+                None => {
+                    println!("Argument NAME not found.");
+                    return;
+                }
+            };
+        },
         Some(("remove", sub)) => {
             let _name = match sub.get_one::<String>("name") {
                 Some(name) => modules::remove::remove_handle(name).await,
                 None => {
                     println!("Argument NAME not found.");
-                    return
+                    return;
                 }
             };
         },
@@ -36,6 +42,6 @@ async fn main() {
                 },
             };
         }
-        _ => println!("Command not found. Use sin help."),
+        _ => println!("Command not found."),
     }
 }

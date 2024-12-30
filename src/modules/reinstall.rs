@@ -19,18 +19,23 @@ struct Info {
     last_update: String,
 }
 
-pub fn install_command() -> Command {
-    Command::new("install")
-        .alias("i")
-        .about("Install package")
+pub fn reinstall_command() -> Command {
+    Command::new("reinstall") 
+        .alias("rei")
+        .about("Reinstall package")
         .arg(Arg::new("name")
             .value_name("NAME")
             .required(true) 
         )
 }
 
-pub async fn install_handle(name: &str) {
-    
+pub async fn reinstall_handle(name: &str) {
+    if let Ok(_) = fs::remove_file(format!("/usr/local/bin/{}", name)).await {
+        println!("Package removed.");
+    } else {
+        println!("Failed to remove package.");
+    };
+
     let meta = match reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
         Ok(meta) => {
             match meta.text().await {
@@ -112,5 +117,4 @@ pub async fn install_handle(name: &str) {
             println!("Failed to unarchive tar.gz archive. Error: {}", e);
         };
     }
-
 }

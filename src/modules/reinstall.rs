@@ -6,6 +6,7 @@ use tokio::io::AsyncWriteExt;
 use flate2::read::GzDecoder;
 use tar::Archive;
 use reqwest::header::{HeaderMap, ACCEPT};
+use tracing::{info, error, debug};
 
 #[derive(Serialize, Deserialize)]
 struct Info {
@@ -31,23 +32,26 @@ pub fn reinstall_command() -> Command {
 
 pub async fn reinstall_handle(name: &str) {
     if let Ok(_) = fs::remove_file(format!("/usr/local/bin/{}", name)).await {
-        println!("Package removed.");
+        info!("Package removed.");
     } else {
-        println!("Failed to remove package.");
+        error!("Failed to remove package.");
     };
 
     let meta = match reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
         Ok(meta) => {
             match meta.text().await {
-                Ok(meta) => meta,
+                Ok(meta) => {
+                    info!("Downloading package...");
+                    meta
+                },
                 Err(_) => {
-                    println!("Converting error.");
+                    error!("Converting error.");
                     return;
                 },
             } 
         },
         Err(_) => {
-            println!("Package not found.");
+            error!("Package not found.");
             return;
         }
     };
@@ -55,7 +59,7 @@ pub async fn reinstall_handle(name: &str) {
     let json: Info = if let Ok(json) = serde_json::from_str(&meta) {
         json
     } else {
-        println!("Failed to parse json.");
+        error!("Failed to parse json.");
         return;
     };
 
@@ -65,56 +69,57 @@ pub async fn reinstall_handle(name: &str) {
     let client = reqwest::Client::new();
 
     let file = if let Ok(resp) = client.get(json.url).headers(map).send().await {
-        println!("File successfully received.");
+        info!("File successfully received.");
         resp
     } else {
-        println!("Error to get file.");
+        error!("Error to get file.");
         return;
     };
 
     if file.status().is_success() {
-        println!("Archive successfully download.");
+        debug!("Archive successfully download.");
 
         let bytes = if let Ok(bytes) = file.bytes().await {
-            println!("Bytes writted.");
+            debug!("Bytes writted.");
             bytes
         } else {
-            println!("Error writing bytes.");
+            error!("Error writing bytes.");
             return;
         };
 
         let mut empty_archive = if let Ok(empty_archive) = File::create(format!("{}.tar.gz", json.name)).await {
-            println!("Empty archive successfully created.");    
+            debug!("Empty archive successfully created.");    
             empty_archive
         } else {
-            println!("Failed to create empty archive.");
+            error!("Failed to create empty archive.");
             return
         };
 
         if let Ok(_) = empty_archive.write_all(&bytes).await {
-            println!("Bytes writed to archive!");
+            debug!("Bytes writed to archive!");
         } else {
-            println!("Failed to write bytes to archive.");
+            error!("Failed to write bytes to archive.");
         };
 
         let tar_gz = if let Ok(tar_gz) = std::fs::File::open(format!("{}.tar.gz", json.name)) {
-            println!("tar.gz archive opened.");
+            debug!("tar.gz archive opened.");
             tar_gz
         } else {
-            println!("Error to open tar.gz archive.");
+            error!("Error to open tar.gz archive.");
             return;
         };
 
         let tar = GzDecoder::new(tar_gz);
         let mut new_archive = Archive::new(tar);
 
+        info!("Unpacking the archive...");
         if let Ok(_) = new_archive.unpack("/usr/local/bin") {
-            println!("tar.gz archive successfully unarchived");
+            info!("Archive successfully unpacked");
             if let Err(_) = fs::remove_file(format!("{}.tar.gz", json.name)).await {
-                println!("Faile to remove archive.");
+                error!("Faile to remove archive.");
             }
         } else if let Err(e) = new_archive.unpack("/usr/local/bin") {
-            println!("Failed to unarchive tar.gz archive. Error: {}", e);
+            error!("Failed to unarchive tar.gz archive. Error: {}", e);
         };
     }
 }

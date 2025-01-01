@@ -1,5 +1,6 @@
 use clap::{Command, Arg};
 use tokio::fs;
+use tracing::{error, info};
 
 pub fn remove_command() -> Command {
     Command::new("remove")
@@ -13,8 +14,8 @@ pub fn remove_command() -> Command {
 
 pub async fn remove_handle(name: &str) {
     if let Ok(_) = fs::remove_file(format!("/usr/local/bin/{}", name)).await {
-        println!("Package removed.");
+        info!("Package removed.");
     } else {
-        println!("Failed to remove package.");
+        error!("Failed to remove package.");
     };
 }

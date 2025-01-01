@@ -2,6 +2,7 @@ use clap::{Command, Arg};
 use serde::{Serialize, Deserialize};
 use reqwest;
 use serde_json;
+use tracing::error;
 
 #[derive(Serialize, Deserialize)]
 struct Info {
@@ -31,18 +32,18 @@ pub async fn search_handle(name: &str) {
             match meta.text().await {
                 Ok(meta) => meta,
                 Err(_) => {
-                    println!("Failed converting.");
+                    error!("Failed converting.");
                     return;
                 },
             }
         },
-        Err(_) => { println!("Failed to send request."); return },
+        Err(_) => { error!("Failed to send request."); return },
     };
 
     let json: Info = if let Ok(json) = serde_json::from_str(&meta) {
         json
     } else {
-        println!("Failed to parse json.");
+        error!("Failed to parse json.");
         return;
     };
     println!("Name: {}

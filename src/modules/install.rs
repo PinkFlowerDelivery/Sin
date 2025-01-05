@@ -2,11 +2,14 @@ use clap::{Command, Arg};
 use serde_json;
 use serde::{Serialize, Deserialize};
 use tokio::fs::{self, File};
-use tokio::io::AsyncWriteExt;
 use flate2::read::GzDecoder;
 use tar::Archive;
 use reqwest::header::{HeaderMap, ACCEPT};
 use tracing::{info, error, warn, debug};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::cmp::min;
+use futures_util::stream::StreamExt;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Serialize, Deserialize)]
 struct Info {
@@ -59,11 +62,26 @@ pub async fn install_handle(name: &str) {
         return;
     };
 
+    let client_size = reqwest::Client::new();
+    let response_size = if let Ok(response_size) = client_size.get(&json.url).send().await {
+        debug!("Head request successfully sended");
+        response_size
+    } else {
+        error!("Failed to send head request");
+        return;
+   };
+
+    let total_size = if let Some(total_size) = response_size.content_length() {
+        total_size
+    } else {
+        error!("Failed to get filesize.");
+        return;
+    };
+
     let mut map = HeaderMap::new();
     map.insert(ACCEPT, "application/octet-stream".parse().unwrap());
 
     let client = reqwest::Client::new();
-
     let file = if let Ok(resp) = client.get(json.url).headers(map).send().await {
         debug!("File successfully received.");
         resp
@@ -72,30 +90,41 @@ pub async fn install_handle(name: &str) {
         return;
     };
 
-    if file.status().is_success() {
-        debug!("Archive successfully download.");
+    let mut empty_archive = if let Ok(empty_archive) = File::create(format!("{}.tar.gz", json.name)).await {
+        debug!("Empty archive successfully created.");    
+        empty_archive
+    } else {
+        error!("Failed to create empty archive.");
+        return
+    };
 
-        let bytes = if let Ok(bytes) = file.bytes().await {
-            debug!("Bytes writted.");
-            bytes
+    let bar = ProgressBar::new(total_size); 
+    bar.set_style(ProgressStyle::default_bar()
+        .template("{bar:40.cyan/blue} {percent}% {msg}")
+        .unwrap()
+        .progress_chars("#>-"));
+
+    let mut downloaded: u64 = 0;
+    let mut stream = response_size.bytes_stream();
+
+    while let Some(item) = stream.next().await {
+        let chunk = if let Ok(chunk) = item {
+            chunk
         } else {
-            error!("Error writing bytes.");
+            error!("Failed to get item");
             return;
         };
+        if let Err(_) = empty_archive.write_all(&chunk).await {
+            error!("Failed to write bytes to archive"); 
+        }
+        let new = min(downloaded + (chunk.len() as u64), total_size);
+        downloaded = new;
+        bar.set_position(downloaded);
+    }
 
-        let mut empty_archive = if let Ok(empty_archive) = File::create(format!("{}.tar.gz", json.name)).await {
-            debug!("Empty archive successfully created.");    
-            empty_archive
-        } else {
-            error!("Failed to create empty archive.");
-            return
-        };
 
-        if let Ok(_) = empty_archive.write_all(&bytes).await {
-            debug!("Bytes writed to archive!");
-        } else {
-            error!("Failed to write bytes to archive.");
-        };
+    if file.status().is_success() {
+        debug!("Archive successfully download.");
 
         let tar_gz = if let Ok(tar_gz) = std::fs::File::open(format!("{}.tar.gz", json.name)) {
             debug!("tar.gz archive opened.");

@@ -1,4 +1,4 @@
-use clap::{Command};
+use clap::Command;
 use tokio::fs::read_dir;
 
 pub fn list_command() -> Command {

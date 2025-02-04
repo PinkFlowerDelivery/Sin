@@ -36,24 +36,18 @@ pub fn install_command() -> Command {
 pub async fn install_handle(name: &str) {
     info!("Beginning {} installation", name);
 
-    let meta = match reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
-        Ok(meta) => {
-            match meta.text().await {
-                Ok(meta) => {
-                    info!("Downloading package...");
-                    meta
-                },
-                Err(_) => {
-                    error!("Converting error.");
-                    return;
-                },
-            } 
-        },
-        Err(_) => {
-            error!("Package not found.");
+    let meta = if let Ok(meta) = reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
+        if let Ok(meta) = meta.text().await {
+            info!("Downloading package..."); 
+            meta
+        } else {
+            error!("Converting error");
             return;
         }
-    };
+    } else {
+        error!("Package not found.");
+        return;
+    }; 
 
     let json: Info = if let Ok(json) = serde_json::from_str(&meta) {
         json
@@ -149,3 +143,6 @@ pub async fn install_handle(name: &str) {
     }
 
 }
+
+
+//Hi guys

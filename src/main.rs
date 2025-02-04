@@ -19,41 +19,37 @@ async fn main() {
 
     match matches.subcommand() {
         Some(("install", sub)) => {
-            let _name = match sub.get_one::<String>("name") {
-                Some(name) => modules::install::install_handle(name).await,
-                None => {
-                    error!("Argument NAME not found.");
-                    return;
-                },
-            };
+            if let Some(name) = sub.get_one::<String>("name") {
+                modules::install::install_handle(name).await;
+            } else {
+                error!("Argument NAME not found.");
+                return;
+            }
         }
         Some(("list", _)) => modules::list::list_handle().await,
         Some(("reinstall" , sub)) => {
-            let _name = match sub.get_one::<String>("name") {
-                Some(name) => modules::reinstall::reinstall_handle(name).await,
-                None => {
-                    error!("Argument NAME not found.");
-                    return;
-                }
-            };
+            if let Some(name) = sub.get_one::<String>("name") {
+                modules::reinstall::reinstall_handle(name).await;
+            } else {
+                error!("Argument NAME not found.");
+                return;
+            }
         },
         Some(("remove", sub)) => {
-            let _name = match sub.get_one::<String>("name") {
-                Some(name) => modules::remove::remove_handle(name).await,
-                None => {
-                    error!("Argument NAME not found.");
-                    return;
-                }
-            };
+            if let Some(name) = sub.get_one::<String>("name") {
+                modules::remove::remove_handle(name).await
+            } else {
+                error!("Argument NAME not found");
+                return;
+            }
         },
         Some(("search", sub)) => {
-            let _name = match sub.get_one::<String>("name") {
-                Some(name) => modules::search::search_handle(name).await,
-                None => { 
-                    error!("Argument NAME not found.");
-                    return;
-                },
-            };
+            if let Some(name) = sub.get_one::<String>("name") {
+                modules::search::search_handle(name).await
+            } else {
+                error!("Argument NAME not found");
+                return;
+            }
         }
         _ => warn!("Command not found."),
     }

@@ -27,17 +27,16 @@ pub fn search_command() -> Command {
 }
 
 pub async fn search_handle(name: &str) {
-    let meta = match reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
-        Ok(meta) => {
-            match meta.text().await {
-                Ok(meta) => meta,
-                Err(_) => {
-                    error!("Failed converting.");
-                    return;
-                },
-            }
-        },
-        Err(_) => { error!("Failed to send request."); return },
+    let meta = if let Ok(meta) = reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
+        if let Ok(meta) = meta.text().await {
+            meta
+        } else {
+            error!("Failed converting.");
+            return
+        }
+    } else {
+        error!("Failed to send request");
+        return;
     };
 
     let json: Info = if let Ok(json) = serde_json::from_str(&meta) {

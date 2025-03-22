@@ -1,11 +1,12 @@
-use clap::{Command, Arg};
-use serde::{Serialize, Deserialize};
-use reqwest;
+use clap::{Arg, Command};
+use reqwest::{get};
+use serde::{Deserialize, Serialize};
 use serde_json;
-use tracing::error;
+
+use crate::errors::Errors;
 
 #[derive(Serialize, Deserialize)]
-struct Info {
+struct PackageStruct {
     name: String,
     version: String,
     description: String,
@@ -20,36 +21,30 @@ pub fn search_command() -> Command {
     Command::new("search")
         .alias("s")
         .about("Search package")
-        .arg(Arg::new("name")
-            .value_name("NAME")
-            .required(true)
-        )
+        .arg(Arg::new("name").value_name("NAME").required(true))
 }
 
-pub async fn search_handle(name: &str) {
-    let meta = if let Ok(meta) = reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
-        if let Ok(meta) = meta.text().await {
-            meta
-        } else {
-            error!("Failed converting.");
-            return
-        }
-    } else {
-        error!("Failed to send request");
-        return;
-    };
+pub async fn search_handle(name: &str) -> Result<(), Errors>  {
+    let addr = "http://192.168.0.108:3000/download";
+    let package_json = get(format!("{addr}/{name}.json")).await?.text().await?;
 
-    let json: Info = if let Ok(json) = serde_json::from_str(&meta) {
-        json
-    } else {
-        error!("Failed to parse json.");
-        return;
-    };
-    println!("Name: {}
+    let package_meta: PackageStruct = serde_json::from_str(&package_json)?;
+
+    println!(
+        "Name: {}
 Version: {}
 Description: {}
 Dependencies: {:?}
 Source: {}
 Size: {}
-Last update: {}", json.name, json.version, json.description, json.dependencies, json.source, json.size, json.last_update);
+Last update: {}",
+        package_meta.name,
+        package_meta.version,
+        package_meta.description,
+        package_meta.dependencies,
+        package_meta.source,
+        package_meta.size,
+        package_meta.last_update
+    );
+    Ok(())
 }

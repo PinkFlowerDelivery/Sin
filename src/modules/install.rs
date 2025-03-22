@@ -1,26 +1,28 @@
 use clap::{Command, Arg};
 use serde_json;
 use serde::{Serialize, Deserialize};
-use tokio::fs::{self, File};
-use flate2::read::GzDecoder;
-use tar::Archive;
+use reqwest::{self, get, Client};
 use reqwest::header::{HeaderMap, ACCEPT};
-use tracing::{info, error, warn, debug};
+use tokio::fs::{self, File};
+use tokio_tar::Archive;
+use async_compression::tokio::bufread::GzipDecoder;
+use tokio::io::{AsyncWriteExt, BufReader};
+use futures_util::stream::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::cmp::min;
-use futures_util::stream::StreamExt;
-use tokio::io::AsyncWriteExt;
+
+use crate::errors::Errors;
 
 #[derive(Serialize, Deserialize)]
-struct Info {
+struct PackageStruct {
     name: String,
     version: String,
     description: String,
     url: String,
     dependencies: Vec<String>,
-    source: String,
     size: String,
-    last_update: String,
+    source: String,
+    last_update: String
 }
 
 pub fn install_command() -> Command {
@@ -28,121 +30,68 @@ pub fn install_command() -> Command {
         .alias("i")
         .about("Install package")
         .arg(Arg::new("name")
-            .value_name("NAME")
-            .required(true) 
+            .value_name("name")
+            .required(true)
+            .num_args(1..)
         )
 }
 
-pub async fn install_handle(name: &str) {
-    info!("Beginning {} installation", name);
+pub async fn install_handle(name: &str) -> Result<(), Errors> {
+    let addr = "http://192.168.0.108:3000/download";
+    let package_json = get(format!("{addr}/{name}.json")).await?.text().await?;
 
-    let meta = if let Ok(meta) = reqwest::get(format!("http://localhost:3000/download/{}.json", name)).await {
-        if let Ok(meta) = meta.text().await {
-            info!("Downloading package..."); 
-            meta
-        } else {
-            error!("Converting error");
-            return;
-        }
-    } else {
-        error!("Package not found.");
-        return;
-    }; 
+    // Parsing json
+    let package_meta: PackageStruct = serde_json::from_str(&package_json)?;
 
-    let json: Info = if let Ok(json) = serde_json::from_str(&meta) {
-        json
-    } else {
-        error!("Failed to parse json.");
-        return;
-    };
-
-    let client_size = reqwest::Client::new();
-    let response_size = if let Ok(response_size) = client_size.get(&json.url).send().await {
-        debug!("Head request successfully sended");
-        response_size
-    } else {
-        error!("Failed to send head request");
-        return;
-   };
-
-    let total_size = if let Some(total_size) = response_size.content_length() {
-        total_size
-    } else {
-        error!("Failed to get filesize.");
-        return;
-    };
+    println!("Installing package {}", package_meta.name);
+    println!("Size {}", package_meta.size);
+    println!("Repo {}", package_meta.source);
+    println!("Dependencies {:?}", package_meta.dependencies);
 
     let mut map = HeaderMap::new();
-    map.insert(ACCEPT, "application/octet-stream".parse().unwrap());
+    map.insert(ACCEPT, "application/octet-stream".parse()?);
 
-    let client = reqwest::Client::new();
-    let file = if let Ok(resp) = client.get(json.url).headers(map).send().await {
-        debug!("File successfully received.");
-        resp
-    } else {
-        error!("Error to get file.");
-        return;
-    };
+    // Parsing file bytes
+    let client = Client::new();
+    let package_file = client.get(&package_meta.url).headers(map).send().await?;
 
-    let mut empty_archive = if let Ok(empty_archive) = File::create(format!("{}.tar.gz", json.name)).await {
-        debug!("Empty archive successfully created.");    
-        empty_archive
-    } else {
-        error!("Failed to create empty archive.");
-        return
-    };
+    let mut empty_archive = File::create(format!("{}.tar.gz", &package_meta.name)).await?;
 
-    let bar = ProgressBar::new(total_size); 
-    bar.set_style(ProgressStyle::default_bar()
-        .template("{bar:40.cyan/blue} {percent}% {msg}")
-        .unwrap()
-        .progress_chars("#>-"));
+let status = package_file.status(); // Saving status for if 
+    let file_content_len = package_file.content_length();
+
+    let progressbar = ProgressBar::new(file_content_len.unwrap());
+    progressbar.set_style(ProgressStyle::default_bar()
+        .template(" [{bar:40.white}] {bytes}/{total_bytes}, ETA: {elapsed}").unwrap()
+        .progress_chars("##")
+        );
 
     let mut downloaded: u64 = 0;
-    let mut stream = response_size.bytes_stream();
 
-    while let Some(item) = stream.next().await {
-        let chunk = if let Ok(chunk) = item {
-            chunk
-        } else {
-            error!("Failed to get item");
-            return;
-        };
-        if let Err(_) = empty_archive.write_all(&chunk).await {
-            error!("Failed to write bytes to archive"); 
-        }
-        let new = min(downloaded + (chunk.len() as u64), total_size);
+    // Paste bytes to empty archive
+    let mut stream_bytes = package_file.bytes_stream();
+    while let Some(item) = stream_bytes.next().await {
+        let chunk = item?;
+        empty_archive.write_all(&chunk).await?;
+        let new = min(downloaded + (chunk.len() as u64), file_content_len.unwrap());
         downloaded = new;
-        bar.set_position(downloaded);
+        progressbar.set_position(downloaded);
     }
+    println!("Integrity check...");
 
+    if status.is_success() {
+        let file = File::open(format!("{}.tar.gz", package_meta.name)).await?;
 
-    if file.status().is_success() {
-        debug!("Archive successfully download.");
+        // Unpacking archive
+        println!("Unpacking archive...");
+        let buf_reader = BufReader::new(file);
+        let decoder = GzipDecoder::new(buf_reader);
+        let mut archive = Archive::new(decoder); 
+        archive.unpack("/usr/local/bin").await?;
 
-        let tar_gz = if let Ok(tar_gz) = std::fs::File::open(format!("{}.tar.gz", json.name)) {
-            debug!("tar.gz archive opened.");
-            tar_gz
-        } else {
-            error!("Error to open tar.gz archive.");
-            return;
-        };
-
-        let tar = GzDecoder::new(tar_gz);
-        let mut new_archive = Archive::new(tar);
-
-        info!("Unpacking the archive...");
-        if let Ok(_) = new_archive.unpack("/usr/local/bin") {
-            info!("Archive successfully unpacked");
-            if let Err(_) = fs::remove_file(format!("{}.tar.gz", json.name)).await {
-                warn!("Failed to remove archive.");
-            }
-        } else if let Err(e) = new_archive.unpack("/usr/local/bin") {
-            error!("Failed to unarchive tar.gz archive. Error: {}", e);
-        };
+        fs::remove_file(format!("{}.tar.gz", package_meta.name)).await?;
+        println!("Succefully instaled {}", name);
+         
     }
-
+    Ok(())
 }
-
-
-//Hi guys

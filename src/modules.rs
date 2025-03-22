@@ -4,7 +4,6 @@ pub mod install;
 pub mod list;
 pub mod remove;
 pub mod search;
-pub mod reinstall;
 
 pub fn build_cli() -> Command {
     Command::new("sin")
@@ -14,18 +13,18 @@ pub fn build_cli() -> Command {
         .disable_help_subcommand(true)
         .disable_version_flag(true)
         .arg_required_else_help(true)
-        .help_template("\
+        .help_template(
+            "\
 {usage-heading} {usage}
 
 {all-args}{after-help}
 
 Author: {author}
 Version: {version}
-")
+",
+        )
         .subcommand(install::install_command())
         .subcommand(list::list_command())
         .subcommand(remove::remove_command())
         .subcommand(search::search_command())
-        .subcommand(reinstall::reinstall_command())
- 
 }
